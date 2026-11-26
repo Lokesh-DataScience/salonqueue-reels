@@ -160,7 +160,7 @@ def frame(t, T):
             # flood of bubbles (problem)
             pass
         for txt, bx, by, bt in BUBS:
-            at = bt if t < s2 else bt
+            at = bt if bt < 1 else s2 + (bt - 2.6) * 1.3
             if t >= at and (bt < 1 or t >= s2):
                 s = pop((0.6 if at == 0 else 0) + (t - at) / 0.3) * (1 + 0.03 * math.sin(t * 6 + bx))
                 bubble(img, txt, bx, by, s, dark=False, fs=50 if t < s2 else 46)
@@ -276,8 +276,13 @@ def music(dur, path):
 
 if __name__ == '__main__':
     T = DEFAULT_T
-    if len(sys.argv) > 3: T = json.load(open(sys.argv[3]))
+    VO = None; GT = None
+    if len(sys.argv) > 3:
+        cfg = json.load(open(sys.argv[3])); T = cfg['T']; GT = cfg.get('G'); VO = cfg.get('vo')
     G = groups(T); DUR = T[-1][1] + 1.0
+    if GT:
+        assert len(GT) == len(G), (len(GT), len(G))
+        G = [(a, b, g[2], g[3]) for (a, b), g in zip(GT, G)]
     if sys.argv[1] == 'frames':
         for tt in [0.0, 0.5, 1.5, 4.5, 6.5, 8.3, 9.8, 12.5, 14.0, 16.5]:
             frame(tt, T).save(f'{sys.argv[2]}/f_{tt:05.2f}.png')
@@ -289,6 +294,12 @@ if __name__ == '__main__':
         for i in range(int(DUR * FPS)):
             p.stdin.write(frame(i / FPS, T).tobytes())
         p.stdin.close(); assert p.wait() == 0
+        if VO:
+            # voice untouched (volume 1, no trim/normalise); music quiet bed + fade, mixed without normalisation
+            subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', f'{sp}/video_tmp.mp4', '-i', VO, '-i', f'{sp}/music.wav',
+                            '-filter_complex', '[2:a]volume=0.13,aresample=48000[m];[1:a]aresample=48000,apad[v];[v][m]amix=inputs=2:duration=shortest:normalize=0[a]',
+                            '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', str(DUR), '-movflags', '+faststart', out], check=True)
+            print('done vo', DUR); sys.exit()
         subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', f'{sp}/video_tmp.mp4', '-i', f'{sp}/music.wav', '-map', '0:v', '-map', '1:a',
                         '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-filter:a', 'volume=0.6', '-shortest', '-movflags', '+faststart', out], check=True)
         print('done', DUR)
